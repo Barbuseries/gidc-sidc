@@ -59,6 +59,11 @@ function process_image()
 	then
 		gidc_args+=("--count $count")
 	fi
+
+	if [ ! -z "$palette" ]
+	then
+		gidc_args+=("--palette $palette")
+	fi
 	
 	mapfile -t all_dominant_colors < <("$GIDC" "$img" --group-by-name --format "%p %n" ${gidc_args[@]})
 
@@ -67,9 +72,6 @@ function process_image()
 		errcho "could not process $img."
 		exit 1
 	fi
-
-	# Last element is empty.
-	unset all_dominant_colors[-1]
 
 	# Whatever the threshold is, take the fist dominant value.
 	all_valid_colors=("$(echo ${all_dominant_colors[0]} | cut -d ' ' -f 2)")
@@ -88,10 +90,10 @@ function process_image()
 
 	if [ ! -d "$img_dir/$dest_directory" ]
 	then
-		mkdir -p "$img_dir/$dest_directory"
+		echo mkdir -p "$img_dir/$dest_directory"
 	fi
 
-	mv "$img" "$img_dir/$dest_directory"
+	echo mv "$img" "$img_dir/$dest_directory"
 	
 	exit 0
 }
@@ -132,7 +134,8 @@ Options:
                            (Default $progress_update_delay) 
   -b, --bits N             See gidc.
   -c, --count N            See gidc.
-  -p, --percentage N       See gidc."
+  -p, --percentage N       See gidc.
+      --palette PALETTE    See gidc."
 
 _mult_short_opt_regexp='^-[^-].+'
 
@@ -182,6 +185,10 @@ do
 			progress=true
 
 			[[ -n "$2" && ! "$2" = -* && ! "$2" = --* ]] && progress_update_delay="$2" && shift
+			;;
+		--palette)
+			palette="$(get-arg-if-present - $2)" || exit 1
+			shift
 			;;
 		
 		-*|--*)
