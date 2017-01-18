@@ -1,0 +1,277 @@
+#!/bin/bash
+
+# Poor man's config file.
+GIDC=./gidc.py
+
+img_dir="$HOME/Images"
+default_threshold=30
+default_separator='_'
+
+# Who knows...
+progress_bar_max_length=30
+progress_update_delay=1
+
+
+# Do not touch. Magic inside.
+
+function errcho()
+{
+	echo >&2 "$@"
+}
+
+# NOTE: Usage: get-arg-if-present SHORT_OPT_NAME POSSIBLE_ARG.
+#       If the option has no short name, it's not taken into account.
+#       Return POSSIBLE_ARG if present and exit with code 0.
+#       Exit with code 1 otherwhise.
+function get-arg-if-present()
+{
+	local key="$_key"
+	local sopt="$1"
+	shift
+	local val="$@"
+	shift
+
+	if [[ -z "$val" ]] || [[ ! "$key" = "$sopt" && ! "$key" = --* ]]
+	then
+		[[ ! "$key" = --* ]] && key="${key::2}"
+		errcho "$_me: option '$key' requires an argument."
+		exit 1
+	fi
+
+	echo "$val"
+}
+
+function process_image()
+{
+	img="$1"
+
+	if [ ! -z "$bits" ]
+	then
+		gidc_args+=("--bits $bits")
+	fi
+
+	if [ ! -z "$percentage" ]
+	then
+		gidc_args+=("--percentage $percentage")
+	fi
+	
+	if [ ! -z "$count" ]
+	then
+		gidc_args+=("--count $count")
+	fi
+	
+	mapfile -t all_dominant_colors < <("$GIDC" "$img" --group-by-name --format "%p %n" ${gidc_args[@]})
+
+	if [[ $? -ne 0 ]]
+	then
+		errcho "could not process $img."
+		exit 1
+	fi
+
+	# Last element is empty.
+	unset all_dominant_colors[-1]
+
+	# Whatever the threshold is, take the fist dominant value.
+	all_valid_colors=("$(echo ${all_dominant_colors[0]} | cut -d ' ' -f 2)")
+
+	for color in "${all_dominant_colors[@]:1}"; do
+		color_percentage="$(echo $color | cut -d ' ' -f 1)"
+		color_name="$(echo $color | cut -d ' ' -f 2)"
+		
+		if (( $(echo "$color_percentage >= $threshold" | bc -l )))
+		then
+			all_valid_colors+=("$color_name")
+		fi
+	done
+
+	dest_directory="$(echo "${all_valid_colors[@]}" | sed "s/ /$separator/g")/"
+
+	if [ ! -d "$img_dir/$dest_directory" ]
+	then
+		mkdir -p "$img_dir/$dest_directory"
+	fi
+
+	mv "$img" "$img_dir/$dest_directory"
+	
+	exit 0
+}
+
+_me="$(basename "$0")"
+
+_version_major="0"
+_version_minor="4"
+
+_version="$_version_major.$_version_minor"
+
+_license="Copyright © $(date +%Y) Barbu
+This work is free. You can redistribute it and/or modify it under the
+terms of the Do What The Fuck You Want To Public License, Version 2,
+as published by Sam Hocevar. See http://www.wtfpl.net/ for more details."
+
+_verbose_version="$_me $_version
+
+$_license"
+
+_usage="Usage: $_me IMG [IMG ...] [OPTION]...
+Sort Images by their Dominant Color.
+
+Options:
+      --help               Show this (hopefully) helpful message.
+      --version            Show this program's version.
+  -d, --destination        Common destination directory.
+                           (Default $img_dir)
+  -S, --separator C        Character(s) to put in-between each dominant
+                           color of the image to make the directory's name.
+                           Some characters need to be escaped.
+                           (Default '$default_separator')
+  -t, --threshold N        Minimum percentage above which a color is
+                           considered valid. This does not apply to the
+                           first dominant color.
+                           (Default $default_threshold)
+  -P, --progress [SECONDS] Show progress every SECONDS seconds.
+                           (Default $progress_update_delay) 
+  -b, --bits N             See gidc.
+  -c, --count N            See gidc.
+  -p, --percentage N       See gidc."
+
+_mult_short_opt_regexp='^-[^-].+'
+
+_key="$1"
+
+all_images=()
+threshold=$default_threshold
+separator=$default_separator
+
+while [[ $# -gt 0 ]]
+do
+	case "$_key" in
+		--help)
+			echo "$_usage"
+			exit 0
+			;;
+		--version)
+			echo "$_verbose_version"
+			exit 0
+			;;
+
+		-d*|--destination)
+			img_dir="$(get-arg-if-present -d $2)" || exit 1
+			shift
+			;;
+		-S*|--separator)
+			separator="$(get-arg-if-present -S $2)" || exit 1
+			shift
+			;;
+		-b*|--bits)
+			bits="$(get-arg-if-present -b $2)" || exit 1
+			shift
+			;;
+		-c*|--count)
+			count="$(get-arg-if-present -c $2)" || exit 1
+			shift
+			;;
+		-p*|--percentage)
+			percentage="$(get-arg-if-present -p $2)" || exit 1
+			shift
+			;;
+		-t*|--threshold)
+			threshold="$(get-arg-if-present -t $2)" || exit 1
+			shift
+			;;
+		-P*|--progress)
+			progress=true
+
+			[[ -n "$2" && ! "$2" = -* && ! "$2" = --* ]] && progress_update_delay="$2" && shift
+			;;
+		
+		-*|--*)
+			[[ ! "$_key" = --* ]] && _key="${_key::2}"
+			
+			errcho "$_me: invalid option '$_key'."
+			errcho "See --help for more information."
+			exit 1
+			;;
+		*)
+			if [ -f "$_key" ]
+			then
+				all_images+=("$_key")
+			else
+				_key="${_key%/}"
+				
+				mapfile -t recursive_found_files < <(find "$_key/" -type f)
+				all_images+=("${recursive_found_files[@]}")
+			fi
+			
+			;;
+	esac
+	
+	# NOTE: If multiple short options are passed at once.
+	#       Remove first option so whe can process the next ones.
+	if [[ "$_key" =~ $_mult_short_opt_regexp ]]
+	then
+		_key="${_key:2}"
+
+		# NOTE: Does not prepend '-' if it does not start with a
+		# letter for a prettier ouput.
+		[[ "$_key" = [a-zA-Z]* ]] && _key="-$_key"
+	else
+		shift
+		
+		_key="$1"
+	fi
+done
+
+if [ ${#all_images[@]} -eq 0 ]
+then
+	exit 0
+fi
+
+pids=""
+total_running_process_count=0
+for img in "${all_images[@]}"
+do
+	[[ -f "$img" ]] && process_image "$img" &
+	pids+=" $!"
+
+	((++total_running_process_count))
+done
+
+if [ "$progress" = "true" ]
+then
+	running_process_count=1
+	old_running_process_count=-1
+	while [ $running_process_count -gt 0 ]
+	do
+		running_process_count=0
+		for pid in $pids
+		do
+			if kill -0 $pid >/dev/null 2>&1
+			then
+				((++running_process_count))
+			fi
+		done
+
+		if [ $old_running_process_count -ne $running_process_count ]
+		then
+		   done_process_count=$(($total_running_process_count-$running_process_count))
+		   progress_percent=$(bc <<< "100*$done_process_count/$total_running_process_count")
+		   progress_bar_length=$(bc <<< "$progress_bar_max_length*$progress_percent/100")$()
+		   
+		   echo -ne "\r["
+		   perl -e "print \"#\"x$progress_bar_length"
+		   perl -e "print \".\"x($progress_bar_max_length-$progress_bar_length)"
+		   echo -ne "] ($progress_percent%)"
+
+		   old_running_process_count=$running_process_count
+		fi
+
+		if [ $running_process_count -gt 0 ]
+		then
+			sleep $progress_update_delay
+		fi
+	done
+	
+	echo -ne "\r\033[K"
+else
+	wait
+fi
