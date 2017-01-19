@@ -301,9 +301,10 @@ def main():
     cumulative = False
     random = False
     display_average = False
+    image_box=[[0, 100], [0, 100]]
 
     version_major="0"
-    version_minor="7"
+    version_minor="8"
 
     version=".".join([version_major, version_minor])
 
@@ -328,9 +329,22 @@ def main():
                   "\n"\
                   "(If you want to use escaped characters (e.g., '\\t')\n"\
                   "from the shell, precede format by '$' (e.g., $'%n\\t%p'))."
-              
+    
+    box_syntax = "[^]min_x,max_width:min_y,max_y"
+    
+    box_help = "BOX syntax is:\n"\
+               "  %s\n\n"\
+               "Where values are in percentages and '^' invert the box.\n\n"\
+               "Examples of valid boxes:\n"\
+               " '25,50:25,50'  (same as '25,50')\n"\
+               " '^25,50:25,50' (same as '^25,50')\n"\
+               " ',:25,50'      (same as '0,100:25,50')\n"\
+               " '25,50:'       (same as '25,50:0,100')\n"\
+               " ':'            (same as '0,100:0,100')\n\n" \
+               "Pixels are only counted once, even if they appear in\n"\
+               "multiple boxes." % box_syntax
 
-    epilog = "\n".join([format_help])
+    epilog = "\n\n".join([format_help, box_help])
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
                                      description=description,
@@ -371,10 +385,16 @@ def main():
     parser.add_argument("-a", "--average", dest="display_average", action="store_const",
                         const=True,
                         help="display the image's average color.\n")
+    parser.add_argument("-B", "--box", metavar="BOX,", dest="all_boxes_description", type=str, nargs='+',
+                        help="which part of the image to use.\n"
+                        "'^' invert the box.\n"\
+                        "(Default %d,%d:%d,%d)" % (image_box[0][0], image_box[0][1],
+                                                   image_box[1][0], image_box[1][1]))
 
     argcomplete.autocomplete(parser, always_complete_options="long")
     args = parser.parse_args()
 
+    all_image_boxes = []
     all_images_count = len(args.all_images)
     
     if (all_images_count > 1):
@@ -425,6 +445,87 @@ def main():
     if (not args.display_average is None):
         display_average = True
 
+    if (not args.all_boxes_description is None):
+        for box in args.all_boxes_description:
+            box_dimensions = box.split(':')
+        
+            if (len(box_dimensions) > 2):
+                eprint("-B/--box: BOX syntax is %s." % box_syntax)
+                quit()
+            elif (len(box_dimensions) == 1):
+                if (box_dimensions[0][0] == '^'):
+                    box_dimensions = [box_dimensions[0], box_dimensions[0][1:]]
+                else:
+                    box_dimensions = [box_dimensions[0], box_dimensions[0]]
+
+            width_spec = box_dimensions[0].split(',')
+        
+            if (len(width_spec) > 2):
+                eprint("-B/--box: BOX format is [^]min_width,max_width:min_height,max_height.")
+                quit()
+            elif (len(width_spec) == 1): # '', '^', or '^X'
+                if (len(width_spec[0]) == 0): # '', take default values
+                    width_spec = [str(image_box[0][0]), str(image_box[0][1])]
+                elif ((len(width_spec[0]) == 1) and (width_spec[0][0] == '^')): # '^', take default values
+                    width_spec = ['^%s' % str(image_box[0][0]), str(image_box[0][1])]
+                else: # '^X'
+                    width_spec = [width_spec[0], str(image_box[0][1])] # take max default value
+            elif (len(width_spec) == 2): # 'X,X', '^,X', '^,', '^X,', ',X'
+                if (len(width_spec[0]) == 0): # ',X', take default min value
+                    width_spec = [str(image_box[0][0]), width_spec[1]]
+                if ((len(width_spec[0]) == 1) and (width_spec[0][0] == '^')): # '^,', '^,X', take default min value
+                    width_spec = ['^%s' % str(image_box[0][0]), width_spec[1]]
+                    if (len(width_spec[1]) == 0): # '^,', 'X,', '^X,', take default max value
+                        width_spec = [width_spec[0], str(image_box[0][1])]
+
+            height_spec = box_dimensions[1].split(',')
+
+            if (len(height_spec) > 2):
+                eprint("-B/--box: BOX format is [^]min_width,max_width:min_height,max_height.")
+                quit()
+            elif (len(height_spec) == 1):
+                if (len(height_spec[0]) == 0):
+                    height_spec = [str(image_box[1][0]), str(image_box[1][1])]
+                else:
+                    height_spec = [height_spec[0], str(image_box[1][1])]
+            elif (len(height_spec) == 2):
+                if (len(height_spec[0]) == 0):
+                    height_spec = [str(image_box[1][0]), height_spec[1]]
+                if (len(height_spec[1]) == 0):
+                    height_spec = [height_spec[0], str(image_box[1][1])]
+
+            invert_box = (width_spec[0][0] == '^')
+
+            # TODO?: Handle per variable absolute pixel alternative.
+            try:
+                box_min_width = float(width_spec[0][invert_box:]) # Skip first char if invert_box
+                box_max_width = float(width_spec[1])
+                box_min_height = float(height_spec[0])
+                box_max_height = float(height_spec[1])
+            except Exception as e:
+                eprint(e)
+                quit()
+
+            if (((box_min_width < 0) or (box_min_width > 100)) or
+                ((box_max_width < 0) or (box_max_width > 100)) or
+                ((box_min_height < 0) or (box_min_height > 100)) or
+                ((box_max_height < 0) or (box_max_height > 100))):
+                eprint("-b/--box: dimensions are in percentage and must be >= 0 and <= 100.")
+                quit()
+
+            all_image_boxes.append([invert_box,
+                                    [box_min_width, box_max_width],
+                                    [box_min_height, box_max_height]])
+
+    all_image_boxes = sorted(all_image_boxes, key=operator.itemgetter(0))
+
+    # If no box is given or only invert boxes are, add a non-inverted
+    # box matching the whole image.
+    if ((len(all_image_boxes) == 0) or
+        (len(all_image_boxes) > 0 and
+         (all_image_boxes[0][0]))):
+        all_image_boxes.insert(0, [False, image_box[0], image_box[1]])
+
     palette = all_palettes[palette_name]
     color_map = {}
     pixel_count = 0
@@ -449,39 +550,45 @@ def main():
         width, height = image.size            
         color_mask = 255 << color_byte_shift
 
-        if (not random):
-            for y in numpy.linspace(0, height, num=int(height * sqrt(pixels_percentage)), endpoint=False):
-                for x in numpy.linspace(0, width, num=int(width * sqrt(pixels_percentage)), endpoint=False):
-                    red, green, blue = pixels[int(x), int(y)]
+        
+        all_x = numpy.array([]).astype(int)
+        all_y = numpy.array([]).astype(int)
+            
+        for box in all_image_boxes:
+            if (not random):
+                box_x_count = int(width * (box[1][1] - box[1][0]) / 100 * sqrt(pixels_percentage))
+                box_y_count = int(height * (box[2][1] - box[2][0]) / 100 * sqrt(pixels_percentage))
+            else: # take every pixel, shuffle later
+                box_x_count = int(width * (box[1][1] - box[1][0]) / 100)
+                box_y_count = int(height * (box[2][1] - box[2][0]) / 100)
+                
+            box_x = numpy.linspace(width * box[1][0] / 100, width * box[1][1] / 100, num=box_x_count, endpoint=False).astype(int)
+            box_y = numpy.linspace(height * box[2][0] / 100, height * box[2][1] / 100, num=box_y_count, endpoint=False).astype(int)
+                
+            if (box[0]): # invert_box
+                all_x = numpy.setdiff1d(all_x, box_x, assume_unique=True)
+                all_y = numpy.setdiff1d(all_y, box_y, assume_unique=True)
+            else:
+                all_x = numpy.union1d(all_x, box_x)
+                all_y = numpy.union1d(all_y, box_y)
 
-                    color_key = rgb_to_color_key(red, green, blue, color_mask)
-
-                    try:
-                        color_map[color_key] += 1
-                    except:
-                        color_map[color_key] = 1
-        else:
-            all_y = numpy.linspace(0, height, num=height, endpoint=False)
-            all_x = numpy.linspace(0, width, num=width, endpoint=False)
-
+        if (random):
             numpy.random.shuffle(all_y)
             numpy.random.shuffle(all_x)
 
             all_y = sorted(all_y[:int(height * sqrt(pixels_percentage))])
             all_x = sorted(all_x[:int(width * sqrt(pixels_percentage))])
 
-            for y in all_y:
-                for x in all_x:
-                    red, green, blue = pixels[int(x), int(y)]
-
-                    color_key = ((((red & color_mask) * 256) +
-                                  (green & color_mask)) * 256 + 
-                                 (blue & color_mask))
-
-                    try:
-                        color_map[color_key] += 1
-                    except:
-                        color_map[color_key] = 1
+        for y in all_y:
+            for x in all_x:
+                red, green, blue = pixels[int(x), int(y)]
+                
+                color_key = rgb_to_color_key(red, green, blue, color_mask)
+                    
+                try:
+                    color_map[color_key] += 1
+                except:
+                    color_map[color_key] = 1
 
         if (not cumulative):
             if (display_average):
