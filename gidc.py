@@ -297,7 +297,7 @@ def main():
     random = False
 
     version_major="0"
-    version_minor="5"
+    version_minor="6"
 
     version=".".join([version_major, version_minor])
 

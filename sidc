@@ -6,6 +6,7 @@ GIDC=./gidc.py
 img_dir="$HOME/Images"
 default_threshold=30
 default_separator='_'
+default_max_parallel_sort=10
 
 # Who knows...
 progress_bar_max_length=30
@@ -70,7 +71,7 @@ function process_image()
 	if [[ $? -ne 0 ]]
 	then
 		errcho "could not process $img."
-		exit 1
+		return 1
 	fi
 
 	# Whatever the threshold is, take the fist dominant value.
@@ -90,18 +91,82 @@ function process_image()
 
 	if [ ! -d "$img_dir/$dest_directory" ]
 	then
-		echo mkdir -p "$img_dir/$dest_directory"
+		mkdir -p "$img_dir/$dest_directory"
 	fi
 
-	echo mv "$img" "$img_dir/$dest_directory"
+	mv "$img" "$img_dir/$dest_directory"
 	
-	exit 0
+	return 0
+}
+
+function get_running_process_count()
+{
+	running_process_count=0
+	
+	for pid in $@
+	do
+		if kill -0 $pid >/dev/null 2>&1
+		then
+			((++running_process_count))
+		fi
+	done
+
+	echo $running_process_count
+}
+
+function display_progress_bar()
+{
+	if [ "$progress" = "true" ]
+	then
+		running_process_count=$1
+		total_running_process_count=$2
+
+		done_process_count=$(($total_running_process_count-$running_process_count))
+		progress_percent=$(bc <<< "100*$done_process_count/$total_running_process_count")
+		progress_bar_length=$(bc <<< "$progress_bar_max_length*$progress_percent/100")
+		
+		echo -ne "\r["
+		perl -e "print \"#\"x$progress_bar_length"
+		perl -e "print \".\"x($progress_bar_max_length-$progress_bar_length)"
+		echo -ne "] ($progress_percent%)"
+	fi
+}
+
+function wait_until_sorting_finished()
+{
+	if [ "$progress" = "true" ]
+	then
+		old_running_process_count=-1
+		
+		while [ $running_process_count -gt 0 ]
+		do
+			running_process_count=$(get_running_process_count $pids)
+			
+			if [ $old_running_process_count -ne $running_process_count ]
+			then
+				display_progress_bar $running_process_count $total_images
+				old_running_process_count=$running_process_count
+			fi
+
+			if [ $running_process_count -gt 0 ]
+			then
+				sleep $progress_update_delay
+			fi
+		done
+		
+		if [ "$progress" = "true" ]
+		then
+			echo -ne "\r\033[K"
+		fi
+	else
+		wait
+	fi
 }
 
 _me="$(basename "$0")"
 
 _version_major="0"
-_version_minor="4"
+_version_minor="5"
 
 _version="$_version_major.$_version_minor"
 
@@ -118,24 +183,28 @@ _usage="Usage: $_me IMG [IMG ...] [OPTION]...
 Sort Images by their Dominant Color.
 
 Options:
-      --help               Show this (hopefully) helpful message.
-      --version            Show this program's version.
-  -d, --destination        Common destination directory.
-                           (Default $img_dir)
-  -S, --separator C        Character(s) to put in-between each dominant
-                           color of the image to make the directory's name.
-                           Some characters need to be escaped.
-                           (Default '$default_separator')
-  -t, --threshold N        Minimum percentage above which a color is
-                           considered valid. This does not apply to the
-                           first dominant color.
-                           (Default $default_threshold)
-  -P, --progress [SECONDS] Show progress every SECONDS seconds.
-                           (Default $progress_update_delay) 
-  -b, --bits N             See gidc.
-  -c, --count N            See gidc.
-  -p, --percentage N       See gidc.
-      --palette PALETTE    See gidc."
+      --help                Show this (hopefully) helpful message.
+      --version             Show this program's version.
+  -d, --destination         Common destination directory.
+                            (Default $img_dir)
+  -S, --separator C         Character(s) to put in-between each dominant
+                            color of the image to make the directory's name.
+                            Some characters need to be escaped.
+                            (Default '$default_separator')
+  -t, --threshold N         Minimum percentage above which a color is
+                            considered valid. This does not apply to the
+                            first dominant color.
+                            (Default $default_threshold)
+  -P, --progress [SECONDS]  Show progress every SECONDS seconds.
+                            (Default $progress_update_delay)
+  -m, --max-parallel-sort N Maximum number of images sorted at once
+                            (one process is associated to each image).
+                            (0 means as much as possible)
+                            (Default $default_max_parallel_sort)
+  -b, --bits N              See gidc.
+  -c, --count N             See gidc.
+  -p, --percentage N        See gidc.
+      --palette PALETTE     See gidc."
 
 _mult_short_opt_regexp='^-[^-].+'
 
@@ -144,6 +213,7 @@ _key="$1"
 all_images=()
 threshold=$default_threshold
 separator=$default_separator
+max_parallel_sort=$default_max_parallel_sort
 
 while [[ $# -gt 0 ]]
 do
@@ -190,6 +260,11 @@ do
 			palette="$(get-arg-if-present - $2)" || exit 1
 			shift
 			;;
+		-m*|--max-parallel-sort)
+			max_parallel_sort="$(get-arg-if-present -m $2)" || exit 1
+			shift
+
+			;;
 		
 		-*|--*)
 			[[ ! "$_key" = --* ]] && _key="${_key::2}"
@@ -228,57 +303,88 @@ do
 	fi
 done
 
-if [ ${#all_images[@]} -eq 0 ]
+[[ $max_parallel_sort -lt 0 ]] && errcho "$_me: $_key: N must be >= 0." && exit 1
+
+[[ ${#all_images[@]} -eq 0 ]] && exit 0
+
+total_images="${#all_images[@]}"
+
+# Mono-process
+if [ $max_parallel_sort -eq 1 ]
 then
-	exit 0
-fi
+	images_done=0
 
-pids=""
-total_running_process_count=0
-for img in "${all_images[@]}"
-do
-	[[ -f "$img" ]] && process_image "$img" &
-	pids+=" $!"
+	display_progress_bar $(($total_images-$images_done)) $total_images
 
-	((++total_running_process_count))
-done
-
-if [ "$progress" = "true" ]
-then
-	running_process_count=1
-	old_running_process_count=-1
-	while [ $running_process_count -gt 0 ]
+	for img in "${all_images[@]}"
 	do
-		running_process_count=0
-		for pid in $pids
-		do
-			if kill -0 $pid >/dev/null 2>&1
-			then
-				((++running_process_count))
-			fi
-		done
-
-		if [ $old_running_process_count -ne $running_process_count ]
+		if [ -f "$img" ]
 		then
-		   done_process_count=$(($total_running_process_count-$running_process_count))
-		   progress_percent=$(bc <<< "100*$done_process_count/$total_running_process_count")
-		   progress_bar_length=$(bc <<< "$progress_bar_max_length*$progress_percent/100")$()
-		   
-		   echo -ne "\r["
-		   perl -e "print \"#\"x$progress_bar_length"
-		   perl -e "print \".\"x($progress_bar_max_length-$progress_bar_length)"
-		   echo -ne "] ($progress_percent%)"
-
-		   old_running_process_count=$running_process_count
+			process_image "$img"
 		fi
 
-		if [ $running_process_count -gt 0 ]
+		((++images_done))
+
+		display_progress_bar $(($total_images-$images_done)) $total_images
+	done
+
+	if [ "$progress" = "true" ]
+	then
+		echo -ne "\r\033[K"
+	fi
+	
+	exit 0
+	
+# Full parallelism
+elif [ $max_parallel_sort -eq 0 ]
+then
+	pids=""
+	
+	for img in "${all_images[@]}"
+	do
+		if [ -f "$img" ]
 		then
-			sleep $progress_update_delay
+			process_image "$img" &
+			pids+=" $!"
+		else
+			((--total_images))
 		fi
 	done
+
+	# At least one process must be running to enter the wait loop.
+	running_process_count=1
 	
-	echo -ne "\r\033[K"
+	wait_until_sorting_finished
+
+# Middle ground
 else
-	wait
+	pids=""
+	images_done=0
+	
+	display_progress_bar $total_images $total_images
+	
+	for img in "${all_images[@]}"
+	do
+		[[ -f "$img" ]] && process_image "$img" &
+		pids+=" $!"
+		
+		running_process_count=$(get_running_process_count $pids)
+		
+		while [ $running_process_count -eq $max_parallel_sort ]
+		do
+			sleep 0.5
+			running_process_count=$(get_running_process_count $pids)
+
+			((process_count_diff=$max_parallel_sort-$running_process_count))
+
+			if [ $process_count_diff -ne 0 ]
+			then
+				((images_done+=$process_count_diff))
+
+				display_progress_bar $(($total_images-$images_done)) $total_images
+			fi
+		done
+	done
+
+	wait_until_sorting_finished
 fi
