@@ -209,6 +209,12 @@ def eprint(*args, **kwargs):
     else:
         print(*args, file=sys.stderr, **kwargs)
 
+
+def rgb_to_color_key(red, green, blue, color_mask):
+    return ((((red & color_mask) * 256) +
+             (green & color_mask)) * 256 + 
+            (blue & color_mask))
+        
 def rgb_from_color_key(color_key):
     r = color_key // (256 * 256)
     color_key -= (r * 256 * 256)
@@ -251,15 +257,13 @@ def group_color_by_nearest(color_map, palette):
     return name_color_map
 
 def print_color_map(color_map, palette, pixel_count, display_color_format, group_by_name):
-    if (group_by_name):
-        for color in color_map:
-            print(display_color_format.replace("%n", color[0]) \
-                  .replace("%p", "%0.2f" % ((color[1] * 100) / pixel_count)))
-    else:
-        for color in color_map:
+    for color in color_map:
+        if (group_by_name):
+            red, green, blue = palette[color[0]]
+        else:
             red, green, blue = rgb_from_color_key(color[0])
-                
-            print(display_color_format.replace("%c", "(%d,%d,%d)" % (red, green, blue)) \
+            
+        print(display_color_format.replace("%c", "(%d,%d,%d)" % (red, green, blue)) \
                   .replace("%r", str(red)) \
                   .replace("%g", str(green)) \
                   .replace("%b", str(blue)) \
@@ -267,6 +271,7 @@ def print_color_map(color_map, palette, pixel_count, display_color_format, group
                   .replace("%H", "#{:02X}{:02X}{:02X}".format(red, green, blue)) \
                   .replace("%n", nearest_palette_color(palette, red, green, blue)) \
                   .replace("%p", "%.02f" % ((color[1] * 100) / pixel_count)))
+            
 
 def sort_and_print_colors(color_map, palette, group_by_name, display_color_count, display_color_format, prepend_filename, filename = 'None'):
     if (group_by_name):
@@ -285,7 +290,7 @@ def sort_and_print_colors(color_map, palette, group_by_name, display_color_count
     color_map = {}
     
 def main():
-    palette_name = "vga"
+    palette_name = "basic"
     filename = None
     display_color_count = 1
     display_color_format = "%p\t%n\t%c"
@@ -295,9 +300,10 @@ def main():
     prepend_filename = False
     cumulative = False
     random = False
+    display_average = False
 
     version_major="0"
-    version_minor="6"
+    version_minor="7"
 
     version=".".join([version_major, version_minor])
 
@@ -310,20 +316,18 @@ def main():
     
     description="Get Image's Dominant Colors."
 
-    format_help = "Format:\n"\
-                  "The following variables can be used in FORMAT:\n"\
-                  "\tWhen --group-by-name is NOT set:\n"\
-                  "\t\t%r - red channel\n" \
-                  "\t\t%g - green channel\n" \
-                  "\t\t%b - blue channel\n" \
-                  "\t\t%c - RGB representation (e.g., (255, 255, 255))\n" \
-                  "\t\t%h - RGB hexadecimal representation (lower case) (e.g., #ffffff)\n" \
-                  "\t\t%H - RGB hexadecimal representation (upper case) (e.g., #FFFFFF)\n" \
-                  "\t%n - name (e.g: white)\n" \
-                  "\t%p - percentage\n"\
+    format_help = "The following variables can be used in FORMAT:\n"\
+                  "  %r - red channel\n" \
+                  "  %g - green channel\n" \
+                  "  %b - blue channel\n" \
+                  "  %c - RGB representation (e.g., (255, 255, 255))\n" \
+                  "  %h - RGB hexadecimal representation (lower case) (e.g., #ffffff)\n" \
+                  "  %H - RGB hexadecimal representation (upper case) (e.g., #FFFFFF)\n" \
+                  "  %n - name (e.g: white)\n" \
+                  "  %p - percentage\n"\
                   "\n"\
                   "(If you want to use escaped characters (e.g., '\\t')\n"\
-                  "from the shell, precede format by '$' (e.g., $'%n\\t%p')."
+                  "from the shell, precede format by '$' (e.g., $'%n\\t%p'))."
               
 
     epilog = "\n".join([format_help])
@@ -364,6 +368,9 @@ def main():
     parser.add_argument("-P", "--palette", dest="palette", type=str, nargs=1, choices=all_palettes.keys(),
                         help="which color palette to use.\n"\
                         "(Default %s)" % palette_name)
+    parser.add_argument("-a", "--average", dest="display_average", action="store_const",
+                        const=True,
+                        help="display the image's average color.\n")
 
     argcomplete.autocomplete(parser, always_complete_options="long")
     args = parser.parse_args()
@@ -382,7 +389,6 @@ def main():
 
     if (not args.group_by_name is None):
         group_by_name = True
-        display_color_format = "%p\t%n"
     
     if (not args.display_color_format is None):
         display_color_format = args.display_color_format[0]
@@ -416,6 +422,9 @@ def main():
     if (not args.palette is None):
         palette_name = args.palette[0]
 
+    if (not args.display_average is None):
+        display_average = True
+
     palette = all_palettes[palette_name]
     color_map = {}
     pixel_count = 0
@@ -445,9 +454,7 @@ def main():
                 for x in numpy.linspace(0, width, num=int(width * sqrt(pixels_percentage)), endpoint=False):
                     red, green, blue = pixels[int(x), int(y)]
 
-                    color_key = ((((red & color_mask) * 256) +
-                                  (green & color_mask)) * 256 + 
-                                 (blue & color_mask))
+                    color_key = rgb_to_color_key(red, green, blue, color_mask)
 
                     try:
                         color_map[color_key] += 1
@@ -477,6 +484,22 @@ def main():
                         color_map[color_key] = 1
 
         if (not cumulative):
+            if (display_average):
+                average_color = [0, 0, 0]
+                
+                for color_key in color_map.keys():
+                    red, green, blue = rgb_from_color_key(color_key)
+                    count = color_map[color_key]
+                    
+                    average_color[0] += red * count
+                    average_color[1] += green * count
+                    average_color[2] += blue * count
+
+                pixel_count = sum([p for p in color_map.values()])
+                average_color = [int(channel / pixel_count) for channel in average_color]
+
+                color_map = {rgb_to_color_key(average_color[0], average_color[1], average_color[2], color_mask): 1}
+                
             sort_and_print_colors(color_map, palette, group_by_name,
                                   display_color_count, display_color_format,
                                   prepend_filename, filename)
@@ -490,6 +513,22 @@ def main():
             
             
     if (cumulative):
+        if (display_average):
+            average_color = [0, 0, 0]
+                
+            for color_key in color_map.keys():
+                    red, green, blue = rgb_from_color_key(color_key)
+                    count = color_map[color_key]
+                    
+                    average_color[0] += red * count
+                    average_color[1] += green * count
+                    average_color[2] += blue * count
+                    
+            pixel_count = sum([p for p in color_map.values()])
+            
+            average_color = [int(channel / pixel_count) for channel in average_color]
+            color_map = {rgb_to_color_key(average_color[0], average_color[1], average_color[2], color_mask): 1}
+                
         sort_and_print_colors(color_map, palette, group_by_name,
                               display_color_count, display_color_format,
                               False)
