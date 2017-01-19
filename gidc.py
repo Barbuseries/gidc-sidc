@@ -461,7 +461,7 @@ def main():
             width_spec = box_dimensions[0].split(',')
         
             if (len(width_spec) > 2):
-                eprint("-B/--box: BOX format is [^]min_width,max_width:min_height,max_height.")
+                eprint("-B/--box: BOX syntax is %s." % box_syntax)
                 quit()
             elif (len(width_spec) == 1): # '', '^', or '^X'
                 if (len(width_spec[0]) == 0): # '', take default values
@@ -481,7 +481,7 @@ def main():
             height_spec = box_dimensions[1].split(',')
 
             if (len(height_spec) > 2):
-                eprint("-B/--box: BOX format is [^]min_width,max_width:min_height,max_height.")
+                eprint("-B/--box: BOX syntax is %s." % box_syntax)
                 quit()
             elif (len(height_spec) == 1):
                 if (len(height_spec[0]) == 0):
