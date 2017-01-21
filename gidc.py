@@ -11,10 +11,22 @@ import numpy
 import random
 import os,sys
 import operator
+import itertools
 
 me = os.path.basename(sys.argv[0])
 
-all_palettes = {
+# NOTE: 64 seems to yield the most accurate result (compared to
+#       testing against every color) while being a massive improvement
+#       speed-wise.
+#
+#       32 seems to be the fastest (by 25%, compared to 64), but the
+#       results are up to 15% off...
+#
+#       I need to do a benchmark to make sure.
+SAFE_PALETTE_GRID_WIDTH = 64
+FASTEST_PALETTE_GRID_WIDTH = 32
+
+ALL_PALETTES = {
     "advanced":
     {
         "maroon"                  : [128, 0, 0],
@@ -244,30 +256,100 @@ def raw_channel_to_s_channel(channel):
     else:
         a = 0.055
         return (c + a) / (1 + a)
-    
-# TODO: Use a more sophisticated distance function, add way to specify
-#       one.
-def nearest_palette_color(palette, red, green, blue):
-    return min(palette.items(), key=lambda c: abs(c[1][0] - red) + abs(c[1][1] - green) + abs(c[1][2] - blue))[0]
+
+def make_palette_grid(palette, max_grid_dim_width):
+    grid_dim_size = int(255/max_grid_dim_width) + 1
+
+    palette_grid = []
+
+    palette_grid = [[[[]
+                      for r in range(grid_dim_size)]
+                     for g in range(grid_dim_size)]
+                    for b in range(grid_dim_size)]
+
+    for color in palette.items():
+        red, green, blue = color[1]
+
+        r_index = int(red/max_grid_dim_width)
+        g_index = int(green/max_grid_dim_width)
+        b_index = int(blue/max_grid_dim_width)
+        
+        # IMPORTANT: If max_grid_dim_width is
+        #            FASTEST_PALETTE_GRID_WIDTH, uncomment comments,
+        #            comment non-comments.
+        
+        # min_r_index = r_index
+        # max_r_index = r_index
+        
+        # min_g_index = g_index
+        # max_g_index = g_index
+        
+        # min_b_index = b_index
+        # max_b_index = b_index
+        
+        # offset_r = ((red >= max_grid_dim_width) and
+        #             ((red % max_grid_dim_width) == 0))
+        # offset_g = ((green >= max_grid_dim_width) and
+        #             ((green % max_grid_dim_width) == 0))
+        # offset_b = ((blue >= max_grid_dim_width) and
+        #             ((blue % max_grid_dim_width) == 0))
+
+        # min_r_index = max(r_index - offset_r, 0)
+        # max_r_index = r_index
+        
+        # min_g_index = max(g_index - offset_g, 0)
+        # max_g_index = g_index
+        
+        # min_b_index = max(b_index - offset_b, 0)
+        # max_b_index = b_index
+        
+        # for r, g, b in itertools.product(range(min_r_index, max_r_index + 1), 
+        #                                  range(min_g_index, max_g_index + 1), 
+        #                                  range(min_b_index, max_b_index + 1)):
+        #     palette_grid[r][g][b].append(color)
+        palette_grid[r_index][g_index][b_index].append(color)
+
+    return palette_grid
 
 # NOTE: This is a bottleneck when the palette is 'advanced' and --bits
 #       is 8 (too many distances to calculate)...
+# TODO: Add distance function parameter.
 def group_color_by_nearest(color_map, palette):
     name_color_map = {}
 
-    for color in color_map:
-        red, green, blue = rgb_from_color_key(color)
+    # NOTE: When palette is not too big, both path take around the
+    #       same time.
+    #       Otherwhise, the second path is _way_ faster (x5).
+    if (len(palette) <= 16):
+        for color in color_map:
+            red, green, blue = rgb_from_color_key(color)
 
-        color_name = nearest_palette_color(palette, red, green, blue)
+            color_name = min(palette.items(), key=lambda c: abs(c[1][0] - red) + abs(c[1][1] - green) + abs(c[1][2] - blue))[0]
         
-        try:
-            name_color_map[color_name] += color_map[color]
-        except:
-            name_color_map[color_name] = color_map[color]
+            try:
+                name_color_map[color_name] += color_map[color]
+            except:
+                name_color_map[color_name] = color_map[color]
+
+    else:
+        max_grid_dim_width = SAFE_PALETTE_GRID_WIDTH
+        palette_grid = make_palette_grid(palette, max_grid_dim_width)
+        
+        for color in color_map:
+            red, green, blue = rgb_from_color_key(color)
+            color_name, color_value = nearest_palette_color(red, green, blue, palette_grid, max_grid_dim_width)
+        
+            try:
+                name_color_map[color_name] += color_map[color]
+            except:
+                name_color_map[color_name] = color_map[color]
 
     return name_color_map
 
 def print_color_map(color_map, palette, pixel_count, display_color_format, group_by_name):
+    max_grid_dim_width = SAFE_PALETTE_GRID_WIDTH
+    palette_grid = make_palette_grid(palette, max_grid_dim_width)
+    
     for color in color_map:
         if (group_by_name):
             red, green, blue = palette[color[0]]
@@ -284,7 +366,7 @@ def print_color_map(color_map, palette, pixel_count, display_color_format, group
               .replace("%b", str(blue)) \
               .replace("%h", "#{:02x}{:02x}{:02x}".format(red, green, blue)) \
               .replace("%H", "#{:02X}{:02X}{:02X}".format(red, green, blue)) \
-              .replace("%n", nearest_palette_color(palette, red, green, blue)) \
+              .replace("%n", nearest_palette_color(red, green, blue, palette_grid, max_grid_dim_width)[0]) \
               .replace("%p", "%.02f" % ((color[1] * 100) / pixel_count)) \
               .replace("%l", "%.02f" % (0.2126 * sRed + 0.7152 * sGreen + 0.0722 * sBlue)))
             
@@ -318,7 +400,50 @@ def parse_box_dim(dim, default_min, default_max):
             dim = [dim[0], str(default_max)]
 
     return dim
-    
+
+# TODO: Use a more sophisticated distance function, add way to specify
+#       one.
+#       Use HSL and HSV.
+def nearest_palette_color(red, green, blue, palette_grid, max_grid_dim_width):
+    red_index = int(red/max_grid_dim_width)
+    green_index = int(green/max_grid_dim_width)
+    blue_index = int(blue/max_grid_dim_width)
+
+    grid_dim_size = len(palette_grid)
+
+    offset = 1
+    min_distance = -1
+    color = None
+
+    while (color is None):
+        min_red_index = max(red_index - offset, 0)
+        max_red_index = min(red_index + offset, grid_dim_size - 1)
+
+        min_green_index = max(green_index - offset, 0)
+        max_green_index = min(green_index + offset, grid_dim_size - 1)
+
+        min_blue_index = max(blue_index - offset, 0)
+        max_blue_index = min(blue_index + offset, grid_dim_size - 1)
+        
+        for r, g, b in itertools.product(range(min_red_index, max_red_index + 1), 
+                                         range(min_green_index, max_green_index + 1), 
+                                         range(min_blue_index, max_blue_index + 1)):
+            color_list = palette_grid[r][g][b]
+            
+            for c in color_list:
+                c_r, c_g, c_b = c[1]
+                
+                distance = abs(c_r - red) + abs(c_g - green) + abs(c_b - blue)
+
+                if ((color is None) or
+                    (distance < min_distance)):
+                    color = c
+                    min_distance = distance
+                    
+        offset += 1
+
+    return color
+
 def main():
     palette_name = "basic"
     filename = None
@@ -426,7 +551,7 @@ def main():
     parser.add_argument("-r", "--random", dest="random", action="store_const",
                         const=True,
                         help="select pixels at random.")
-    parser.add_argument("-P", "--palette", dest="palette", type=str, nargs=1, choices=all_palettes.keys(),
+    parser.add_argument("-P", "--palette", dest="palette", type=str, nargs=1, choices=ALL_PALETTES.keys(),
                         help="which color palette to use.\n"\
                         "(Default %s)" % palette_name)
     parser.add_argument("-a", "--average", dest="display_average", action="store_const",
@@ -437,7 +562,7 @@ def main():
                         "Type --box help for more information.\n"
                         "(Default %d,%d:%d,%d)" % (image_box[0][0], image_box[0][1],
                                                    image_box[1][0], image_box[1][1]))
-
+    
     argcomplete.autocomplete(parser, always_complete_options="long")
     args = parser.parse_args()
 
@@ -588,7 +713,7 @@ def main():
                                       image_box[1][0], image_box[1][1],
                                       False, False))
 
-    palette = all_palettes[palette_name]
+    palette = ALL_PALETTES[palette_name]
     color_map = {}
     pixel_count = 0
     filename_index = 0
