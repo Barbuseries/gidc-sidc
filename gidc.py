@@ -12,6 +12,7 @@ import random
 import os,sys
 import operator
 import itertools
+import textwrap
 
 me = os.path.basename(sys.argv[0])
 
@@ -209,6 +210,106 @@ ALL_PALETTES = {
     }
 }
 
+# http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
+ALL_RBG_TO_XYZ_MATRICES = {
+    "adobe":
+    [
+        [0.5767309, 0.1855540, 0.1881852],
+        [0.2973769, 0.6273491, 0.0752741],
+        [0.0270343, 0.0706872, 0.9911085]
+    ],
+    "apple":
+    [
+        [0.4497288, 0.3162486, 0.1844926],
+        [0.2446525, 0.6720283, 0.0833192],
+        [0.0251848, 0.1411824, 0.9224628]
+    ],
+    "best":
+    [
+        [0.6326696, 0.2045558, 0.1269946],
+        [0.2284569, 0.7373523, 0.0341908],
+        [0.0000000, 0.0095142, 0.8156958]
+    ],
+    "best":
+    [
+        [0.6712537, 0.1745834, 0.1183829],
+        [0.3032726, 0.6637861, 0.0329413],
+        [0.0000000, 0.0407010, 0.7845090]
+    ],
+    "bruce":
+    [
+        [0.4674162, 0.2944512, 0.1886026],
+        [0.2410115, 0.6835475, 0.0754410],
+        [0.0219101, 0.0736128, 0.9933071]
+    ],
+    "cie":
+    [
+        [0.4887180, 0.3106803, 0.2006017],
+        [0.1762044, 0.8129847, 0.0108109],
+        [0.0000000, 0.0102048, 0.9897952]
+    ],
+    "colormatch":
+    [
+        [0.5093439, 0.3209071, 0.1339691],
+        [0.2748840, 0.6581315, 0.0669845],
+        [0.0242545, 0.1087821, 0.6921735]
+    ],
+    "don":
+    [
+        [0.6457711, 0.1933511, 0.1250978],
+        [0.2783496, 0.6879702, 0.0336802],
+        [0.0037113, 0.0179861, 0.8035125]
+    ],
+    "eci":
+    [
+        [0.6502043, 0.1780774, 0.1359384],
+        [0.3202499, 0.6020711, 0.0776791],
+        [0.0000000, 0.0678390, 0.7573710]
+    ],
+    "ektaspace":
+    [
+        [0.5938914, 0.2729801, 0.0973485],
+        [0.2606286, 0.7349465, 0.0044249],
+        [0.0000000, 0.0419969, 0.7832131]
+    ],
+    "ntsc":
+    [
+        [0.6068909, 0.1735011, 0.2003480],
+        [0.2989164, 0.5865990, 0.1144845],
+        [0.0000000, 0.0660957, 1.1162243]
+    ],
+    "pal":
+    [
+        [0.4306190, 0.3415419, 0.1783091],
+        [0.2220379, 0.7066384, 0.0713236],
+        [0.0201853, 0.1295504, 0.9390944]
+    ],
+    "prophoto":
+    [
+        [0.7976749, 0.1351917, 0.0313534],
+        [0.2880402, 0.7118741, 0.0000857],
+        [0.0000000, 0.0000000, 0.8252100]
+    ],
+    "smpte-c":
+    [
+        [0.3935891, 0.3652497, 0.1916313],
+        [0.2124132, 0.7010437, 0.0865432],
+        [0.0187423, 0.1119313, 0.9581563]
+    ],
+    "srgb":
+    [
+        [0.4124564, 0.3575761, 0.1804375],
+        [0.2126729, 0.7151522, 0.0721750],
+        [0.0193339, 0.1191920, 0.9503041]
+    ],
+    "widegamut":
+    [
+        [0.7161046, 0.1009296, 0.1471858],
+        [0.2581874, 0.7249378, 0.0168748],
+        [0.0000000, 0.0517813, 0.7734287]
+    ]
+}
+
 class Box(object):
     def __init__(self, min_x, max_x, min_y, max_y, is_invert, is_excluding):
         self.min_x = min_x
@@ -255,7 +356,7 @@ def raw_channel_to_s_channel(channel):
         return c / 12.92
     else:
         a = 0.055
-        return (c + a) / (1 + a)
+        return ((c + a) / (1 + a)) ** 2.4
 
 def make_palette_grid(palette, max_grid_dim_width):
     grid_dim_size = int(255/max_grid_dim_width) + 1
@@ -268,53 +369,25 @@ def make_palette_grid(palette, max_grid_dim_width):
                     for b in range(grid_dim_size)]
 
     for color in palette.items():
-        red, green, blue = color[1]
-
+        red, green, blue = color[1][:3]
+        
         r_index = int(red/max_grid_dim_width)
         g_index = int(green/max_grid_dim_width)
         b_index = int(blue/max_grid_dim_width)
-        
-        # IMPORTANT: If max_grid_dim_width is
-        #            FASTEST_PALETTE_GRID_WIDTH, uncomment comments,
-        #            comment non-comments.
-        
-        # min_r_index = r_index
-        # max_r_index = r_index
-        
-        # min_g_index = g_index
-        # max_g_index = g_index
-        
-        # min_b_index = b_index
-        # max_b_index = b_index
-        
-        # offset_r = ((red >= max_grid_dim_width) and
-        #             ((red % max_grid_dim_width) == 0))
-        # offset_g = ((green >= max_grid_dim_width) and
-        #             ((green % max_grid_dim_width) == 0))
-        # offset_b = ((blue >= max_grid_dim_width) and
-        #             ((blue % max_grid_dim_width) == 0))
 
-        # min_r_index = max(r_index - offset_r, 0)
-        # max_r_index = r_index
-        
-        # min_g_index = max(g_index - offset_g, 0)
-        # max_g_index = g_index
-        
-        # min_b_index = max(b_index - offset_b, 0)
-        # max_b_index = b_index
-        
-        # for r, g, b in itertools.product(range(min_r_index, max_r_index + 1), 
-        #                                  range(min_g_index, max_g_index + 1), 
-        #                                  range(min_b_index, max_b_index + 1)):
-        #     palette_grid[r][g][b].append(color)
-        palette_grid[r_index][g_index][b_index].append(color)
+        if (max_grid_dim_width == SAFE_PALETTE_GRID_WIDTH):
+            palette_grid[r_index][g_index][b_index].append(color)
+        else:
+            for r, g, b in itertools.product(range(r_index, r_index + 1), 
+                                             range(g_index, g_index + 1), 
+                                             range(b_index, b_index + 1)):
+                palette_grid[r][g][b].append(color)
 
     return palette_grid
 
 # NOTE: This is a bottleneck when the palette is 'advanced' and --bits
 #       is 8 (too many distances to calculate)...
-# TODO: Add distance function parameter.
-def group_color_by_nearest(color_map, palette):
+def group_color_by_nearest(color_map, palette, color_distance_function, max_grid_dim_width):
     name_color_map = {}
 
     # NOTE: When palette is not too big, both path take around the
@@ -322,7 +395,7 @@ def group_color_by_nearest(color_map, palette):
     #       Otherwhise, the second path is _way_ faster (x5).
     if (len(palette) <= 16):
         for color in color_map:
-            red, green, blue = rgb_from_color_key(color)
+            red, green, blue = rgb_from_color_key(color)[:3]
 
             color_name = min(palette.items(), key=lambda c: abs(c[1][0] - red) + abs(c[1][1] - green) + abs(c[1][2] - blue))[0]
         
@@ -332,12 +405,14 @@ def group_color_by_nearest(color_map, palette):
                 name_color_map[color_name] = color_map[color]
 
     else:
-        max_grid_dim_width = SAFE_PALETTE_GRID_WIDTH
         palette_grid = make_palette_grid(palette, max_grid_dim_width)
         
         for color in color_map:
-            red, green, blue = rgb_from_color_key(color)
-            color_name, color_value = nearest_palette_color(red, green, blue, palette_grid, max_grid_dim_width)
+            red, green, blue = rgb_from_color_key(color)[:3]
+            color_name, color_value = nearest_palette_color(red, green, blue,
+                                                            palette_grid,
+                                                            max_grid_dim_width,
+                                                            color_distance_function)
         
             try:
                 name_color_map[color_name] += color_map[color]
@@ -346,15 +421,16 @@ def group_color_by_nearest(color_map, palette):
 
     return name_color_map
 
-def print_color_map(color_map, palette, pixel_count, display_color_format, group_by_name):
-    max_grid_dim_width = SAFE_PALETTE_GRID_WIDTH
+def print_color_map(color_map, palette, pixel_count,
+                    display_color_format, group_by_name,
+                    color_distance_function, max_grid_dim_width):
     palette_grid = make_palette_grid(palette, max_grid_dim_width)
     
     for color in color_map:
         if (group_by_name):
-            red, green, blue = palette[color[0]]
+            red, green, blue = palette[color[0]][:3]
         else:
-            red, green, blue = rgb_from_color_key(color[0])
+            red, green, blue = rgb_from_color_key(color[0])[:3]
 
         sRed = raw_channel_to_s_channel(red)
         sGreen = raw_channel_to_s_channel(green)
@@ -366,14 +442,20 @@ def print_color_map(color_map, palette, pixel_count, display_color_format, group
               .replace("%b", str(blue)) \
               .replace("%h", "#{:02x}{:02x}{:02x}".format(red, green, blue)) \
               .replace("%H", "#{:02X}{:02X}{:02X}".format(red, green, blue)) \
-              .replace("%n", nearest_palette_color(red, green, blue, palette_grid, max_grid_dim_width)[0]) \
+              .replace("%n", nearest_palette_color(red, green, blue,
+                                                   palette_grid, max_grid_dim_width,
+                                                   color_distance_function)[0]) \
               .replace("%p", "%.02f" % ((color[1] * 100) / pixel_count)) \
               .replace("%l", "%.02f" % (0.2126 * sRed + 0.7152 * sGreen + 0.0722 * sBlue)))
             
 
-def sort_and_print_colors(color_map, palette, group_by_name, display_color_count, display_color_format, prepend_filename, filename = 'None'):
+def sort_and_print_colors(color_map, palette, group_by_name,
+                          color_distance_function, max_grid_dim_width,
+                          display_color_count, display_color_format,
+                          prepend_filename, filename = 'None'):
     if (group_by_name):
-        color_map = group_color_by_nearest(color_map, palette)
+        color_map = group_color_by_nearest(color_map, palette,
+                                           color_distance_function, max_grid_dim_width)
         
     sorted_color_map = sorted(color_map.items(), key=operator.itemgetter(1), reverse=True)
     pixel_count = sum([color[1] for color in sorted_color_map])
@@ -384,7 +466,9 @@ def sort_and_print_colors(color_map, palette, group_by_name, display_color_count
     if (prepend_filename):
         print("%s:" % filename)
                 
-    print_color_map(sorted_color_map, palette, pixel_count, display_color_format, group_by_name)
+    print_color_map(sorted_color_map, palette, pixel_count,
+                    display_color_format, group_by_name, color_distance_function,
+                    max_grid_dim_width)
     color_map = {}
 
 def parse_box_dim(dim, default_min, default_max):
@@ -401,10 +485,8 @@ def parse_box_dim(dim, default_min, default_max):
 
     return dim
 
-# TODO: Use a more sophisticated distance function, add way to specify
-#       one.
-#       Use HSL and HSV.
-def nearest_palette_color(red, green, blue, palette_grid, max_grid_dim_width):
+def nearest_palette_color(red, green, blue, palette_grid,
+                          max_grid_dim_width, color_distance_function):
     red_index = int(red/max_grid_dim_width)
     green_index = int(green/max_grid_dim_width)
     blue_index = int(blue/max_grid_dim_width)
@@ -431,9 +513,7 @@ def nearest_palette_color(red, green, blue, palette_grid, max_grid_dim_width):
             color_list = palette_grid[r][g][b]
             
             for c in color_list:
-                c_r, c_g, c_b = c[1]
-                
-                distance = abs(c_r - red) + abs(c_g - green) + abs(c_b - blue)
+                distance = color_distance_function([red, green, blue], c[1])
 
                 if ((color is None) or
                     (distance < min_distance)):
@@ -443,6 +523,120 @@ def nearest_palette_color(red, green, blue, palette_grid, max_grid_dim_width):
         offset += 1
 
     return color
+
+def get_average_color(color_map):
+    average_color = [0, 0, 0]
+                
+    for color_key in color_map.keys():
+        red, green, blue = rgb_from_color_key(color_key)[:3]
+        count = color_map[color_key]
+        
+        average_color[0] += red * count
+        average_color[1] += green * count
+        average_color[2] += blue * count
+
+    pixel_count = sum([p for p in color_map.values()])
+    average_color = [int(channel / pixel_count) for channel in average_color]
+        
+    return average_color
+
+def absolute_color_difference(color1, color2):
+    return abs(color1[0] - color2[0]) + abs(color1[1] - color2[1]) + abs(color1[2] - color2[2])
+
+# https://en.wikipedia.org/wiki/HSL_and_HSV
+def get_color_hcm(red, green, blue):
+    R = red / 255
+    G = green / 255
+    B = blue / 255
+    
+    M = max(R, G, B)
+    m = min(R, G, B)
+    C = M - m
+    
+    if (C == 0):
+        H_prime = 0
+    elif (M == R):
+        H_prime = ((G - B) / C) % 6
+    elif (M == G):
+        H_prime = (B - R) / C + 2
+    else:
+        H_prime = (R - G) / C + 4
+
+    H = 60 * H_prime
+
+    return [H, C, M]
+
+def get_color_hsv(red, green, blue):
+    H, C, M = get_color_hcm(red, green, blue)
+
+    V = M
+
+    if (V == 0):
+        S = 0
+    else:
+        S = C / V
+
+    return [H, S, V]
+
+def get_color_hsl(red, green, blue):
+    H, C, M = get_color_hcm(red, green, blue)
+
+    # M + m, with C = M - m
+    L = (2 * M - C) / 2
+    
+    if (L == 1):
+        S = 0
+    else:
+        S = C / (1 - abs(2 * L - 1))
+
+    return [H, S, L]
+
+def f_lab(t):
+    delta = 6. / 29
+    
+    if (t > (delta**3)):
+        return abs(t) ** (1. / 3)
+    else:
+        return (t / (3 * (delta**2)))  + (4. / 29)
+
+# https://en.wikipedia.org/wiki/Lab_color_space
+def get_color_lab(red, green, blue, xyz_matrix):
+    R = raw_channel_to_s_channel(red) * 100
+    G = raw_channel_to_s_channel(green) * 100
+    B = raw_channel_to_s_channel(blue) * 100
+    
+    X_n = 95.047
+    Y_n = 100.000
+    Z_n = 108.883
+
+    X = xyz_matrix[0][0] * R + xyz_matrix[0][1] * G + xyz_matrix[0][2] * B
+    Y = xyz_matrix[1][0] * R + xyz_matrix[1][1] * G + xyz_matrix[1][2] * B
+    Z = xyz_matrix[2][0] * R + xyz_matrix[2][1] * G + xyz_matrix[2][2] * B
+
+    f_y = f_lab(Y / Y_n)
+    L = 116 * f_y - 16
+    a = 500 * (f_lab(X / X_n) - f_y)
+    b = 200 * (f_y - f_lab(Z / Z_n))
+
+    return [L, a, b]
+
+def lab_color_distance(color1, color2, xyz_matrix):
+    if (len(color1) < 4):
+        L1, a1, b1 = get_color_lab(color1[0], color1[1], color1[2], xyz_matrix)
+    else:
+        L1, a1, b1 = color1[3]
+        
+    if (len(color2) < 4):
+        L2, a2, b2 = get_color_lab(color2[0], color2[1], color2[2], xyz_matrix)
+    else:
+        L2, a2, b2 = color2[3]
+    
+    return ((L1 - L2)**2) + ((a1 - a2)**2) + ((b1 - b2)**2)
+
+def lab_color_distance_space_function(name):
+    def lab_color_distance_function(color1, color2):
+        return lab_color_distance(color1, color2, ALL_RBG_TO_XYZ_MATRICES[name])
+    return lab_color_distance_function
 
 def main():
     palette_name = "basic"
@@ -457,9 +651,12 @@ def main():
     random = False
     display_average = False
     image_box=[[0, 100], [0, 100]]
+    color_distance_function = absolute_color_difference
+    color_space = ""
+    palette_grid_dim_width = SAFE_PALETTE_GRID_WIDTH
 
     version_major="0"
-    version_minor="9"
+    version_minor="10"
 
     version=".".join([version_major, version_minor])
 
@@ -551,7 +748,7 @@ def main():
     parser.add_argument("-r", "--random", dest="random", action="store_const",
                         const=True,
                         help="select pixels at random.")
-    parser.add_argument("-P", "--palette", dest="palette", type=str, nargs=1, choices=ALL_PALETTES.keys(),
+    parser.add_argument("-P", "--palette", dest="palette", type=str, nargs=1, choices=sorted(ALL_PALETTES.keys()),
                         help="which color palette to use.\n"\
                         "(Default %s)" % palette_name)
     parser.add_argument("-a", "--average", dest="display_average", action="store_const",
@@ -562,10 +759,25 @@ def main():
                         "Type --box help for more information.\n"
                         "(Default %d,%d:%d,%d)" % (image_box[0][0], image_box[0][1],
                                                    image_box[1][0], image_box[1][1]))
-    
+    parser.add_argument("-d", "--accurate-distance", dest="accurate_distance", type=str, nargs='?',
+                        metavar="SPACE_MATRIX",
+                        choices=ALL_RBG_TO_XYZ_MATRICES.keys(), default=None, const="srgb",
+                        help="use a more accurate, but slower,\n"\
+                        "distance function between colors.\n"\
+                        "(Any of the following:\n{toto}\n"\
+                        "(If set, default is '%(const)s')".format(toto=("\n  ".join(textwrap.wrap("  %s" %
+                                                                                                  [x for x in sorted(ALL_RBG_TO_XYZ_MATRICES.keys())],
+                                                                                                  50)))))
+    parser.add_argument("--fast", dest="compute_distance_faster", action="store_const",
+                        const=True,
+                        help="trade accuracy for speed.")
+
     argcomplete.autocomplete(parser, always_complete_options="long")
     args = parser.parse_args()
 
+    
+    # BEGIN ARGUMENT CHECK
+    
     all_image_boxes = []
     all_images_count = len(args.all_images)
     
@@ -695,11 +907,21 @@ def main():
             all_image_boxes.append(Box(box_min_x, box_max_x,
                                        box_min_y, box_max_y,
                                        is_invert, is_excluding))
+            
+    if (not args.accurate_distance is None):
+        color_space = args.accurate_distance
+        color_distance_function = lab_color_distance_space_function(color_space)
+
+    if (not args.compute_distance_faster is None):
+        palette_grid_dim_width = FASTEST_PALETTE_GRID_WIDTH
 
     if (len(args.all_images) == 0):
         eprint("no image given.")
         sys.exit(11)
 
+    # END ARGUMENT CHECK
+
+    
     # Put excluding boxes at the end, so they _do_ exclude something
     # (even if they where given first).
     all_image_boxes = sorted(all_image_boxes, key=lambda x: x.is_excluding)
@@ -720,7 +942,12 @@ def main():
     pixel_factor = sqrt(pixels_percentage)
     old_width = None
     old_height = None
-    
+
+    if (color_space != ""):
+        for color in palette.items():
+            red, green, blue = color[1][:3]
+            color[1].append(get_color_lab(red, green, blue, ALL_RBG_TO_XYZ_MATRICES[color_space]))
+
     for filename in args.all_images:
         try:
             image = Image.open(filename).convert("RGB")
@@ -731,7 +958,7 @@ def main():
         pixels = image.load()
 
         try:
-            red, green, blue = pixels[0, 0]
+            red, green, blue = pixels[0, 0][:3]
         except:
             eprint("can not decode %s." % filename)
             continue
@@ -772,23 +999,33 @@ def main():
                     box_y_count = int(height * (box.max_y - box.min_y) / 100)
 
                 if (recalculate_x):
-                    box_x = numpy.linspace(width * box.min_x / 100, width * box.max_x / 100, num=box_x_count, endpoint=False).astype(int)
+                    box_x = numpy.linspace(width * box.min_x / 100,
+                                           width * box.max_x / 100, num=box_x_count,
+                                           endpoint=False).astype(int)
                     
                 if (recalculate_y):
-                    box_y = numpy.linspace(height * box.min_y / 100, height * box.max_y / 100, num=box_y_count, endpoint=False).astype(int)
+                    box_y = numpy.linspace(height * box.min_y / 100,
+                                           height * box.max_y / 100, num=box_y_count,
+                                           endpoint=False).astype(int)
                     
                 if (box.is_invert):
                     if (image_box_x is None):
                         if (not random):
-                            image_box_x = numpy.linspace(0, width, num=int(width * pixel_factor), endpoint=False).astype(int)
+                            image_box_x = numpy.linspace(0, width,
+                                                         num=int(width * pixel_factor),
+                                                         endpoint=False).astype(int)
                         else:
-                            image_box_x = numpy.linspace(0, width, num=int(width), endpoint=False).astype(int)
+                            image_box_x = numpy.linspace(0, width,
+                                                         num=int(width), endpoint=False).astype(int)
 
                     if (image_box_y is None):
                         if (not random):
-                            image_box_y = numpy.linspace(0, height, num=int(height * pixel_factor), endpoint=False).astype(int)
+                            image_box_y = numpy.linspace(0, height,
+                                                         num=int(height * pixel_factor),
+                                                         endpoint=False).astype(int)
                         else:
-                            image_box_y = numpy.linspace(0, height, num=int(height), endpoint=False).astype(int)
+                            image_box_y = numpy.linspace(0, height,
+                                                         num=int(height), endpoint=False).astype(int)
 
                     if (recalculate_x):
                         box_x = numpy.setdiff1d(image_box_x, box_x, assume_unique=True)
@@ -818,7 +1055,7 @@ def main():
 
         for y in all_y:
             for x in all_x:
-                red, green, blue = pixels[int(x), int(y)]
+                red, green, blue = pixels[int(x), int(y)][:3]
                 
                 color_key = rgb_to_color_key(red, green, blue, color_mask)
                     
@@ -829,25 +1066,13 @@ def main():
 
         if (not cumulative):
             if (display_average):
-                average_color = [0, 0, 0]
+                red, green, blue = get_average_color(color_map)[:3]
+                color_map = {rgb_to_color_key(red, green, blue, color_mask): 1}
                 
-                for color_key in color_map.keys():
-                    red, green, blue = rgb_from_color_key(color_key)
-                    count = color_map[color_key]
-                    
-                    average_color[0] += red * count
-                    average_color[1] += green * count
-                    average_color[2] += blue * count
-
-                pixel_count = sum([p for p in color_map.values()])
-                average_color = [int(channel / pixel_count) for channel in average_color]
-
-                color_map = {rgb_to_color_key(average_color[0],
-                                              average_color[1],
-                                              average_color[2],
-                                              color_mask): 1}
             sort_and_print_colors(color_map, palette, group_by_name,
-                                  display_color_count, display_color_format,
+                                  color_distance_function, palette_grid_dim_width,
+                                  display_color_count,
+                                  display_color_format,
                                   prepend_filename, filename)
             
             filename_index += 1
@@ -863,27 +1088,13 @@ def main():
             
     if (cumulative):
         if (display_average):
-            average_color = [0, 0, 0]
-                
-            for color_key in color_map.keys():
-                    red, green, blue = rgb_from_color_key(color_key)
-                    count = color_map[color_key]
-                    
-                    average_color[0] += red * count
-                    average_color[1] += green * count
-                    average_color[2] += blue * count
-                    
-            pixel_count = sum([p for p in color_map.values()])
-            
-            average_color = [int(channel / pixel_count) for channel in average_color]
-            color_map = {rgb_to_color_key(average_color[0],
-                                          average_color[1],
-                                          average_color[2],
-                                          color_mask): 1}
+            red, green, blue = get_average_color(color_map)[:3]
+            color_map = {rgb_to_color_key(red, green, blue, color_mask): 1}
                 
         sort_and_print_colors(color_map, palette, group_by_name,
-                              display_color_count, display_color_format,
-                              False)
+                              color_distance_function, palette_grid_dim_width,
+                              display_color_count,
+                              display_color_format, False)
 
 if __name__ == "__main__":
     try:
