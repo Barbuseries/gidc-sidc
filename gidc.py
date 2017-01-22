@@ -23,9 +23,16 @@ me = os.path.basename(sys.argv[0])
 #       32 seems to be the fastest (by 25%, compared to 64), but the
 #       results are up to 15% off...
 #
+#       When using a slower distance function, 16 is the fastest.
+#
 #       I need to do a benchmark to make sure.
 SAFE_PALETTE_GRID_WIDTH = 64
-FASTEST_PALETTE_GRID_WIDTH = 32
+FAST_PALETTE_GRID_WIDTH = 32
+FASTEST_PALETTE_GRID_WIDTH = 16
+
+PALETTE_FAST_SPEED_LEVEL = [SAFE_PALETTE_GRID_WIDTH,
+                            FAST_PALETTE_GRID_WIDTH,
+                            FASTEST_PALETTE_GRID_WIDTH]
 
 ALL_PALETTES = {
     "advanced":
@@ -768,8 +775,8 @@ def main():
                         "(If set, default is '%(const)s')".format(toto=("\n  ".join(textwrap.wrap("  %s" %
                                                                                                   [x for x in sorted(ALL_RBG_TO_XYZ_MATRICES.keys())],
                                                                                                   50)))))
-    parser.add_argument("--fast", dest="compute_distance_faster", action="store_const",
-                        const=True,
+    parser.add_argument("--fast", dest="fast_level", type=int, nargs='?',
+                        choices=range(1, len(PALETTE_FAST_SPEED_LEVEL)), default=0, const=1,
                         help="trade accuracy for speed.")
 
     argcomplete.autocomplete(parser, always_complete_options="long")
@@ -912,8 +919,8 @@ def main():
         color_space = args.accurate_distance
         color_distance_function = lab_color_distance_space_function(color_space)
 
-    if (not args.compute_distance_faster is None):
-        palette_grid_dim_width = FASTEST_PALETTE_GRID_WIDTH
+    if (not args.fast_level is None):
+        palette_grid_dim_width = PALETTE_FAST_SPEED_LEVEL[args.fast_level]
 
     if (len(args.all_images) == 0):
         eprint("no image given.")
