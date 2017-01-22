@@ -364,7 +364,14 @@ def raw_channel_to_s_channel(channel):
     else:
         a = 0.055
         return ((c + a) / (1 + a)) ** 2.4
-
+    
+# NOTE: When using XYZ coordinates, grouping by RGB values may not be
+#       the best idea (not the same spacial repartition, (i.e., not a
+#       cube anymore, and close RGB values may be farther in the XYZ
+#       space)).
+#       But it still seems to yield a correct result.
+# TODO: When using XYZ coordinates, use X, Y and Z as indexes instead
+#       of RGB.
 def make_palette_grid(palette, max_grid_dim_width):
     grid_dim_size = int(255/max_grid_dim_width) + 1
 
@@ -647,7 +654,6 @@ def lab_color_distance_space_function(name):
 
 def main():
     palette_name = "basic"
-    filename = None
     display_color_count = 1
     display_color_format = "%p\t%n\t%c"
     color_bits = 6
@@ -657,7 +663,9 @@ def main():
     cumulative = False
     random = False
     display_average = False
+    all_images = []
     image_box=[[0, 100], [0, 100]]
+    all_image_boxes = []
     color_distance_function = absolute_color_difference
     color_space = ""
     palette_grid_dim_width = SAFE_PALETTE_GRID_WIDTH
@@ -782,12 +790,18 @@ def main():
     argcomplete.autocomplete(parser, always_complete_options="long")
     args = parser.parse_args()
 
-    
+
     # BEGIN ARGUMENT CHECK
     
-    all_image_boxes = []
-    all_images_count = len(args.all_images)
-    
+    for entry in args.all_images:
+        if (os.path.isdir(entry)):
+            for (root, dirnames, filenames) in os.walk(entry):
+                all_images.extend([os.path.join(root, f) for f in filenames])
+        else:
+            all_images.append(entry)
+            
+    all_images_count = len(all_images)
+
     if (all_images_count > 1):
         prepend_filename = True
     
@@ -922,7 +936,7 @@ def main():
     if (not args.fast_level is None):
         palette_grid_dim_width = PALETTE_FAST_SPEED_LEVEL[args.fast_level]
 
-    if (len(args.all_images) == 0):
+    if (len(all_images) == 0):
         eprint("no image given.")
         sys.exit(11)
 
@@ -955,7 +969,7 @@ def main():
             red, green, blue = color[1][:3]
             color[1].append(get_color_lab(red, green, blue, ALL_RBG_TO_XYZ_MATRICES[color_space]))
 
-    for filename in args.all_images:
+    for filename in all_images:
         try:
             image = Image.open(filename).convert("RGB")
         except Exception as e:
